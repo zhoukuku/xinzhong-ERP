@@ -1,0 +1,47 @@
+{
+  "auth": {
+    "users": [
+      {"username": "admin", "password": "请修改", "name": "系统管理员", "role": "admin", "department": "all"},
+      {"username": "sales01", "password": "请修改", "name": "电销员工", "role": "employee", "department": "sales"},
+      {"username": "business01", "password": "请修改", "name": "商务员工", "role": "employee", "department": "business"},
+      {"username": "hr01", "password": "请修改", "name": "人事行政员工", "role": "employee", "department": "hr"}
+    ]
+  },
+  "mysql": {
+    "mysql_exe": "C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysql.exe",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "",
+    "database": "your_database_name"
+  },
+  "query": {
+    "table": "companies",
+    "limit": 500,
+    "order_by": "id",
+    "order": "DESC",
+    "field_map": {
+      "projectName": "company_name",
+      "projectCompany": "project_unit",
+      "projectContact": "contact_person",
+      "projectPhone": "phone",
+      "projectAddress": "address",
+      "mainCompany": "main_company",
+      "mainContact": "main_contact",
+      "mainPhone": "main_phone",
+      "mainAddress": "main_address",
+      "relationGraph": "relation_graph",
+      "investor": "investor",
+      "projectSituation": "project_desc",
+      "projectProgress": "project_status",
+      "projectLocation": "location",
+      "recordCode": "credit_code",
+      "remark": "remark",
+      "projectSummary": "summary",
+      "phoneFeedback": "phone_feedback",
+      "source": "source",
+      "sourceId": "id",
+      "recordDate": "record_date"
+    }
+  }
+}

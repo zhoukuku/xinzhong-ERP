@@ -1,0 +1,167 @@
+# 鑫众ERP系统
+
+路径：`E:\k\workspace\projects\project-001-深圳分布式光伏爬虫补全\code\target_agent_platform`
+
+## 当前版本
+
+这是一个内部 ERP。员工只通过浏览器操作，备案采集、MySQL、探迹席位、百度公开检索和豆包综合调查都由服务器执行，不要求员工电脑安装 Python、Selenium、Chrome Driver 或爬虫程序。
+
+已包含：
+
+- 左侧部门导航：电销部、商务部、人事行政部
+- 电销部内页：备案搜索、项目线索、探迹席位、导出
+- 备案搜索来源：深圳投资项目公示 `https://wsbs.sz.gov.cn/investment/pubInformation/index`
+- 备案搜索采用服务器端任务模式：员工点击后提交采集任务，由服务器后端启动爬虫并轮询状态
+- 项目线索主表完整显示叶娟恩 18 个业务表头，前两列固定，详情使用右侧编辑抽屉
+- 四类项目分类：屋顶光伏（国企）、光储充、光伏车棚、屋顶光伏（民企）
+- 项目 CSV 导入
+- 一键载入 `data/caitoubiao_30.csv` 对应的 30 条采投标项目快照
+- 项目字段自动保存到 MySQL，刷新后恢复分类、审核状态和队列状态
+- 探迹多席位服务器队列，单席位同一时间只执行一个任务
+- 探迹字段写回、百度公开检索、豆包综合调查三阶段任务
+- 可选内部访问码登录；配置和后端源码禁止通过网页下载
+- 项目总结、电话反馈人工填写区
+- 四类 Sheet Excel 导出（叶娟恩 18 列）和 JSON 预览
+- MySQL 数据库读取（通过 `mysql.exe`，无需 Python MySQL 驱动）
+
+## 内部使用架构
+
+```text
+员工浏览器 -> 鑫众ERP网页 -> 服务器后端 -> 深圳投资项目公示爬虫
+                              -> MySQL
+                              -> 探迹独立席位
+                              -> 百度公开检索
+                              -> 豆包综合调查
+```
+
+员工看到的是网页和数据；真正执行采集的是部署这套系统的电脑或服务器。当前开发机可以临时演示，正式给多人使用时应放到一台固定内网服务器或常开主机上。
+
+## 已验证的备案采集
+
+2026-07-10 实测查询 `2026-07-08`：
+
+- 深圳投资项目公示原始备案：77 条
+- 光伏、充电站、储能、车棚、光储充、kW/kWh 关键词命中：16 条
+- 返回字段：国家编码、项目名称、项目单位、立项类型、立项时间
+- 备案爬虫使用独立无头 Selenium Profile，不与探迹登录态共用浏览器
+
+## 主要接口
+
+- `POST /api/filing-jobs`：提交服务器端采集任务
+- `GET /api/filing-jobs?id=任务ID`：查询任务状态和采集结果
+- `GET /api/filings`：兼容调试接口，会同步执行采集并在失败时回退缓存
+- `GET /api/projects`：读取 MySQL 项目线索
+- `POST /api/leads`：备案项目去重入库，优先按项目备案编号关联已有项目
+- `POST /api/leads/update`：单条项目自动保存
+- `GET /api/investigation-center`：读取探迹席位和调查队列
+- `POST /api/investigation-tasks`：项目加入服务器调查队列
+- `POST /api/investigation-tasks/assign-next`：空闲探迹席位领取下一条
+- `POST /api/investigation-tasks/run-research-next`：运行百度公开检索和豆包综合调查
+- `POST /api/tungee-seats/open-login`：打开指定探迹席位登录窗口
+- `POST /api/research/open-doubao-login`：打开豆包登录窗口
+
+## 连接 MySQL
+
+复制配置模板：
+
+```powershell
+Copy-Item -LiteralPath .\config.example.json -Destination .\config.local.json
+```
+
+然后用记事本打开 `config.local.json`，填入 Navicat 里同一套连接信息：
+
+- `host`
+- `port`
+- `user`
+- `password`
+- `database`
+- `query.table`
+- `query.field_map`
+
+`config.local.json` 只放本机，不要发给别人。
+
+## 打开方式
+
+在本目录启动后端服务：
+
+```powershell
+python server.py
+```
+
+本机开发访问：
+
+`http://localhost:8765`
+
+## 多人内部访问
+
+正式监听局域网前必须设置访问码：
+
+```powershell
+$env:XINZHONG_ERP_HOST='0.0.0.0'
+$env:XINZHONG_ERP_PORT='8765'
+$env:XINZHONG_ERP_ACCESS_CODE='由管理员设置的内部访问码'
+python server.py
+```
+
+也可以直接运行交互式启动脚本，访问码不会写入文件：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start_erp.ps1
+```
+
+员工访问服务器 IP 的 `8765` 端口。未设置 `XINZHONG_ERP_ACCESS_CODE` 时只建议绑定 `127.0.0.1` 做本机开发。
+
+## 浏览器席位隔离
+
+| 功能 | 端口 | 登录方式 |
+| --- | --- | --- |
+| 备案采集 | 独立 Selenium 实例 | 无需员工登录 |
+| 探迹席位 A | 9222 | 管理员在服务器首次手动登录 |
+| 豆包 | 9223 | 管理员在服务器首次手动登录 |
+| 探迹席位 B | 9224 | 管理员在服务器首次手动登录 |
+
+网页不保存、不展示探迹或豆包密码，只复用服务器上的独立 Chrome Profile。
+
+## 人工字段
+
+以下两列只允许员工人工填写，自动调查不会覆盖：
+
+- 项目总结
+- 电话反馈
+
+## 当前外部准备状态
+
+- 探迹席位 A（9222）和席位 B（9224）均已在服务器完成登录，并以独立 Chrome Profile 并行分流
+- 员工浏览器只查看 ERP 数据，不需要登录探迹；登录态失效时由管理员在服务器点击“检查登录”处理
+- 新增席位默认停用，只有验证进入探迹企业查询页后才会自动启用
+- 豆包使用 9223 独立会话并保持串行调查
+- 2026-07-16 真实验证：任务 #643 / #644 分别由席位 A / B 并行完成
+
+## 席位运营界面
+
+- 汇总区只统计已启用席位，停用席位不占用可用容量
+- 探迹执行数与豆包执行数分开显示
+- 席位卡片显示当前查询企业或空闲状态
+- 调查队列支持进行中、待处理、失败、最近完成四种筛选
+- 新增席位需要确认，且登录验证成功前保持停用
+
+## 企业查询兜底
+
+- 探迹全称未命中时，按同地区、品牌核心词和名称相似度选择高置信候选
+- 模糊命中会在关系图谱中保留原查询名和实际命中名，要求人工复核
+- 豆包未确认最终主体时，仅使用采投标备案公司作为探迹穿透起点
+- 项目名称永远不能作为探迹企业查询词
+- 备案公司兜底必须标注“不是已确认最终主体”
+
+## 日期修复与队列续跑
+
+- Excel 目标客户表中的日期分组标题会自动应用到后续项目，标题行不会作为项目导入
+- 未分组的 Excel 行默认保持未标日期；不得用文件保存日或导入批次日冒充备案日
+- 历史日期可用 `scripts/repair_workbook_section_dates.py` 和 `scripts/repair_legacy_sqlite_dates.py` 做唯一匹配回填，两者默认 dry-run，使用 `--apply` 才写库
+- 项目接口会过滤历史误导入的 `Excel日期分组` 行，页面统计和 Excel 导出使用同一口径
+- 服务重启后会继续处理 `doubao_queued`、`tungee_done` 和 `research_failed`，豆包浏览器始终保持单任务串行
+- 2026-07-16 验证：未标日期由 241 条降至 43 条，51 项自动化测试通过
+- 招标网/采招网历史匹配必须同时验证项目名、项目单位和备案号月份；网页发布时间与备案号月份冲突时拒绝写入
+- 公开网页匹配证据保存在 `lead_date_match_audit`；本轮再确认 2 条，未标日期降至 41 条
+
+- 后续部署到固定内网服务器或常开主机时，再配置 Windows 服务、HTTPS 反向代理和正式员工账号体系

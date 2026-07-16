@@ -1,0 +1,33 @@
+# Local configuration and credentials
+config.local.json
+.env
+.env.*
+!.env.example
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime and browser artifacts
+*.log
+*.dmp
+chrome_*/
+browser_debug_profile*/
+downloads/
+
+# Local databases and business exports
+*.db
+*.sqlite
+*.sqlite3
+*.xls
+*.xlsx
+*.csv
+output/
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

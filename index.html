@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>鑫众ERP系统</title>
+    <link rel="stylesheet" href="./styles.css?v=20260716-module-guides-v7" />
+  </head>
+  <body>
+    <div class="login-gate" id="loginGate" hidden>
+      <form class="login-panel" id="loginForm">
+        <div class="brand-mark">鑫</div>
+        <div>
+          <h2>鑫众ERP系统</h2>
+          <p>公司内部账号登录</p>
+        </div>
+        <label>
+          <span>账号</span>
+          <input id="usernameInput" type="text" autocomplete="username" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="accessCodeInput" type="password" autocomplete="current-password" required />
+        </label>
+        <button class="primary-button" type="submit">登录</button>
+        <div class="login-error" id="loginError"></div>
+      </form>
+    </div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">鑫</div>
+          <div>
+            <h1>鑫众ERP系统</h1>
+            <p>目标模式</p>
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="主导航">
+          <button class="nav-item is-active" data-view="filing">电销部</button>
+          <button class="nav-item" data-view="business">商务部</button>
+          <button class="nav-item" data-view="admin">人事行政部</button>
+        </nav>
+
+        <div class="side-panel sales-only">
+          <div class="side-label">今日目标</div>
+          <div class="target-number" id="todayTarget">0 / 30</div>
+          <div class="meter"><span id="targetMeter"></span></div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow" id="topbarEyebrow">采投标 · 探迹 · 豆包</div>
+            <h2 id="topbarTitle">光伏项目销售线索</h2>
+          </div>
+          <div class="actions sales-only">
+            <label class="file-button internal-only">
+              导入 CSV
+              <input id="csvInput" type="file" accept=".csv" />
+            </label>
+            <button id="loadCaitoubiaoBtn" class="secondary-button internal-only">载入采投标项目</button>
+            <button id="loadDbBtn" class="secondary-button">刷新数据库</button>
+            <button id="addDemoBtn" class="secondary-button internal-only">载入样例</button>
+            <button id="clearBtn" class="ghost-button internal-only">清空本页</button>
+          </div>
+          <div class="user-area" id="userArea">
+            <div><strong id="currentUserName">本机管理员</strong><span id="currentUserRole">管理员</span></div>
+            <button id="logoutBtn" class="ghost-button" type="button">退出</button>
+          </div>
+        </header>
+        <div id="dbStatus" class="db-status sales-only">数据库：未连接</div>
+
+        <section class="metrics sales-only" aria-label="概览">
+          <div class="metric">
+            <span>待联系</span>
+            <strong id="metricPending">0</strong>
+          </div>
+          <div class="metric">
+            <span id="metricScopeLabel">所选日期项目</span>
+            <strong id="metricCollected">0</strong>
+          </div>
+          <div class="metric">
+            <span>已联系</span>
+            <strong id="metricReview">0</strong>
+          </div>
+          <div class="metric">
+            <span>有效线索</span>
+            <strong id="metricExportable">0</strong>
+          </div>
+        </section>
+
+        <div class="sales-tabs sales-only" id="salesTabs">
+          <button class="sales-tab is-active" data-sales-view="workspace">项目线索</button>
+          <button class="sales-tab" data-sales-view="filing">备案采集</button>
+          <button class="sales-tab internal-only" data-sales-view="accounts">探迹席位</button>
+        </div>
+
+        <section class="view" id="view-filing">
+          <div class="module-layout">
+          <section class="filing-panel module-content">
+            <div class="section-title">
+              <h3>备案项目搜索</h3>
+              <div class="filing-source">深圳投资项目公示 · https://wsbs.sz.gov.cn/investment/pubInformation/index</div>
+            </div>
+
+            <div class="filing-controls">
+              <div class="filing-step-row">
+                <span class="filing-step-number">1</span>
+                <label>
+                  <span>立项日期</span>
+                  <input id="filingDateInput" type="date" />
+                </label>
+                <button id="searchFilingBtn" class="primary-button">查询原始数据</button>
+                <button id="refreshFilingBtn" class="secondary-button" type="button">重新采集官网</button>
+              </div>
+              <div class="filing-step-row filing-filter-row">
+                <span class="filing-step-number">2</span>
+                <label class="keyword-field">
+                  <span>筛选关键词</span>
+                  <input id="filingKeywordsInput" type="search" />
+                </label>
+                <button id="filterFilingBtn" class="primary-button">筛选项目</button>
+              </div>
+            </div>
+
+            <div class="filing-actions">
+              <div class="filing-view-switch" role="group" aria-label="备案数据视图">
+                <button id="showFilteredFilingsBtn" class="view-switch-button is-active" type="button">筛选结果</button>
+                <button id="showRawFilingsBtn" class="view-switch-button" type="button">原始数据</button>
+              </div>
+              <label class="check-line">
+                <input id="selectAllFilings" type="checkbox" />
+                <span>全选当前结果</span>
+              </label>
+              <button id="addSelectedFilingsBtn" class="primary-button" disabled>3　加入项目线索并开始调查（0条）</button>
+              <span id="filingStatus" class="filing-status">选择日期后查询</span>
+            </div>
+
+            <section class="filing-job-card" id="filingJobCard" hidden>
+              <div class="job-card-head">
+                <div><span class="job-kicker">当前采集任务</span><strong id="filingJobTitle">等待任务</strong></div>
+                <span class="task-status" id="filingJobBadge">等待</span>
+              </div>
+              <div class="job-timeline" id="filingJobTimeline"></div>
+              <div class="job-meta" id="filingJobMeta"></div>
+            </section>
+
+            <div class="filing-table-scroll">
+              <table class="filing-table">
+                <thead>
+                  <tr>
+                    <th class="check-col"></th>
+                    <th>国家编码</th>
+                    <th>项目名称</th>
+                    <th>项目单位</th>
+                    <th>立项类型</th>
+                    <th>立项时间</th>
+                  </tr>
+                </thead>
+                <tbody id="filingRows"></tbody>
+              </table>
+            </div>
+          </section>
+          <aside class="module-guide" aria-label="备案采集使用说明">
+            <strong class="module-guide-title">备案采集流程</strong>
+            <ol class="module-guide-steps">
+              <li><b>查原始数据</b><span>选日期后读取数据库；需要核对官网最新数据时再点“重新采集官网”。</span></li>
+              <li><b>筛选项目</b><span>按光伏、储能、充电等关键词缩小范围，不会启动公司调查。</span></li>
+              <li><b>开始调查</b><span>确认勾选后加入项目线索，后台自动执行豆包分析和探迹补全。</span></li>
+            </ol>
+            <p class="module-guide-note">原始数据用于核对完整性；筛选结果才是准备调查的项目。</p>
+          </aside>
+          </div>
+        </section>
+
+        <section class="view is-visible" id="view-workspace">
+          <div class="module-layout">
+          <div class="module-content">
+          <section class="workflow-banner" id="workflowBanner"></section>
+          <div class="toolbar">
+            <div class="filter-cluster">
+              <div class="segmented customer-stage-switch" role="tablist" aria-label="客户阶段">
+                <button class="segment customer-stage is-active" data-stage="target">目标客户</button>
+                <button class="segment customer-stage" data-stage="met">已见面客户</button>
+              </div>
+              <label class="result-date-filter">
+                <span>项目日期</span>
+                <select id="resultDateFilter" aria-label="项目日期"></select>
+              </label>
+              <div class="segmented" role="tablist" aria-label="项目分类">
+                <button class="segment is-active" data-category="all">全部</button>
+                <button class="segment" data-category="roof_state">屋顶光伏国企</button>
+                <button class="segment" data-category="storage_charge">光储充</button>
+                <button class="segment" data-category="carport">光伏车棚</button>
+                <button class="segment" data-category="roof_private">屋顶光伏民企</button>
+              </div>
+            </div>
+            <div class="search-box">
+              <input id="searchInput" type="search" placeholder="搜索项目或公司" />
+            </div>
+          </div>
+
+          <div class="workspace-grid">
+            <section class="table-panel">
+              <div class="table-header">
+                <div class="table-title-group">
+                  <strong>项目数据</strong>
+                  <span class="table-caption" id="resultDateCaption">客户转化跟踪 · 18 列</span>
+                  <span id="projectCount" class="table-count">0 条</span>
+                </div>
+                <div class="table-actions">
+                  <span class="scroll-hint">左右滚动查看全部字段</span>
+                  <button id="tableExportBtn" class="primary-button" type="button">导出 Excel</button>
+                  <button id="queueSelectedBtn" class="small-button internal-only">加入队列</button>
+                </div>
+              </div>
+              <div class="table-scroll">
+                <table class="leads-table">
+                  <thead>
+                    <tr id="projectHead"></tr>
+                  </thead>
+                  <tbody id="projectRows"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <div class="detail-backdrop" id="detailBackdrop"></div>
+            <aside class="detail-panel" id="detailPanel" aria-label="项目字段编辑"></aside>
+          </div>
+          </div>
+          <aside class="module-guide" aria-label="项目线索使用说明">
+            <strong class="module-guide-title">项目线索怎么用</strong>
+            <ol class="module-guide-steps">
+              <li><b>先筛选</b><span>按日期、客户阶段或分类找到当天需要联系的项目。</span></li>
+              <li><b>看详情</b><span>点击任意项目行可查看和修改联系人、主体公司及项目进展。</span></li>
+              <li><b>打电话并记录</b><span>点击手机号拨号，把沟通结果写入“电话反馈”。</span></li>
+              <li><b>导出 Excel</b><span>导出当前日期和筛选范围内的数据，便于跟进和汇报。</span></li>
+            </ol>
+            <p class="module-guide-note"><b>待补全</b>表示后台仍在获取资料；管理员需要重查时才使用“加入队列”。</p>
+          </aside>
+          </div>
+        </section>
+
+        <section class="view" id="view-business">
+          <div class="department-placeholder"><strong>商务部</strong><span>模块待启用</span></div>
+        </section>
+
+        <section class="view" id="view-admin">
+          <div class="department-placeholder"><strong>人事行政部</strong><span>模块待启用</span></div>
+        </section>
+
+        <section class="view" id="view-accounts">
+          <div class="accounts-layout">
+            <section class="account-list">
+              <div class="section-title">
+                <div>
+                  <h3>探迹席位池</h3>
+                  <span id="centerStatus" class="section-status">连接服务器中...</span>
+                </div>
+                <button id="addSeatBtn" class="small-button">新增席位</button>
+              </div>
+              <div id="seatSummary" class="seat-summary"></div>
+              <div class="seat-hint">每个席位使用独立浏览器会话，执行中的席位不会被重复分配。</div>
+              <div id="seatList" class="seat-list"></div>
+            </section>
+
+            <section class="queue-panel">
+              <div class="section-title">
+                <div>
+                  <h3>调查任务队列</h3>
+                  <span class="section-status">先由豆包识别主体公司，再由探迹查询主体公司</span>
+                </div>
+                <div class="queue-actions">
+                  <span>后台自动调度</span>
+                  <button id="doubaoLoginBtn" class="internal-only" type="button">打开豆包会话</button>
+                  <button id="startInvestigationBtn" class="internal-only" type="button">手动处理下一条</button>
+                </div>
+              </div>
+              <div id="queueFilters" class="queue-filters segmented" role="tablist" aria-label="调查任务状态">
+                <button class="segment is-active" data-queue-filter="active" type="button">进行中 <b>0</b></button>
+                <button class="segment" data-queue-filter="waiting" type="button">待处理 <b>0</b></button>
+                <button class="segment" data-queue-filter="failed" type="button">失败 <b>0</b></button>
+                <button class="segment" data-queue-filter="done" type="button">最近完成 <b>0</b></button>
+              </div>
+              <ol id="queueList" class="queue-list"></ol>
+            </section>
+            <aside class="module-guide" aria-label="探迹席位使用说明">
+              <strong class="module-guide-title">席位与队列说明</strong>
+              <div class="module-guide-section">
+                <b>日常无需手动操作</b>
+                <span>任务会在服务器后台按“豆包识别主体 → 探迹补全资料 → 写入项目线索”自动执行。</span>
+              </div>
+              <dl class="module-guide-definitions">
+                <div><dt>待处理</dt><dd>正在等豆包、空闲探迹席位或等待入库，不是报错。</dd></div>
+                <div><dt>打开豆包会话</dt><dd>仅豆包页面异常或会话失效时由管理员使用，员工电脑不用登录。</dd></div>
+                <div><dt>手动处理下一条</dt><dd>自动调度长时间没有继续时，用于人工触发一次。</dd></div>
+                <div><dt>检查登录</dt><dd>验证该探迹席位的服务器端登录状态。</dd></div>
+              </dl>
+              <p class="module-guide-note">“失败”才需要查看原因并重试；待处理任务请避免重复加入队列。</p>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" id="view-export">
+          <div class="export-layout">
+            <section>
+              <h3>四类 Sheet</h3>
+              <div id="sheetCounts" class="sheet-counts"></div>
+            </section>
+            <section>
+              <h3>导出数据</h3>
+              <div class="export-actions">
+                <button id="exportCsvBtn" class="primary-button">导出 Excel</button>
+                <button id="copyJsonBtn" class="secondary-button">复制 JSON</button>
+              </div>
+              <textarea id="exportPreview" readonly></textarea>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="detailTemplate">
+      <div class="detail-titlebar">
+        <div class="detail-title-copy">
+          <span>项目字段编辑</span>
+          <strong data-detail-title></strong>
+        </div>
+        <div class="detail-title-actions">
+          <span class="save-status" data-save-status>已保存</span>
+          <button class="icon-button detail-close" type="button" aria-label="关闭项目字段编辑" title="关闭">×</button>
+        </div>
+      </div>
+
+      <div class="detail-body">
+      <div class="detail-head">
+        <div>
+          <label class="inline-label">分类</label>
+          <select data-field="category"></select>
+        </div>
+        <div>
+          <label class="inline-label">状态</label>
+          <select data-field="reviewStatus">
+            <option value="待查探迹">待查探迹</option>
+            <option value="已取信息">已取信息</option>
+            <option value="待人工审核">待人工审核</option>
+            <option value="可导出">可导出</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-grid"></div>
+
+      <div class="meta-block">
+        <div class="meta-title">来源信息</div>
+        <div class="meta-grid"></div>
+      </div>
+
+      <div class="manual-row">
+        <label>
+          <span>项目总结</span>
+          <textarea data-field="projectSummary"></textarea>
+        </label>
+        <label>
+          <span>电话反馈</span>
+          <textarea data-field="phoneFeedback"></textarea>
+        </label>
+      </div>
+      </div>
+    </template>
+
+    <script src="./caitoubiao_seed.js?v=20260716-module-guides-v7"></script>
+    <script src="./app.js?v=20260716-module-guides-v7"></script>
+  </body>
+</html>
