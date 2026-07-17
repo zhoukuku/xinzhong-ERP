@@ -32,6 +32,8 @@ CRAWLER_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
 TASK_ASSIGN_LOCK = threading.Lock()
 DOUBAO_LOCK = threading.Lock()
+AUTO_DISPATCH_LOCK = threading.Lock()
+AUTO_DISPATCH_INTERVAL_SECONDS = 15
 FILING_JOBS: dict[str, dict] = {}
 SESSION_LOCK = threading.Lock()
 SESSIONS: dict[str, dict] = {}
@@ -2371,31 +2373,47 @@ def assign_next_investigation_task() -> dict:
 
 
 def auto_dispatch_available_tasks() -> None:
-    config = load_config()
-    # Doubao uses one shared browser session, so only one analysis may run.
-    active_doubao = run_mysql(
-        "SELECT COUNT(*) FROM `investigation_tasks` WHERE `status` IN ('doubao_running','research_running')",
-        config,
-    ).strip()
-    if active_doubao == "0":
-        next_doubao = run_mysql(
-            "SELECT `id` FROM `investigation_tasks` "
-            "WHERE `status` IN ('doubao_queued','tungee_done','research_failed') "
-            "ORDER BY `priority`,`id` LIMIT 1",
+    if not AUTO_DISPATCH_LOCK.acquire(blocking=False):
+        return
+    try:
+        config = load_config()
+        # Doubao uses one shared browser session, so only one analysis may run.
+        active_doubao = run_mysql(
+            "SELECT COUNT(*) FROM `investigation_tasks` WHERE `status` IN ('doubao_running','research_running')",
             config,
         ).strip()
-        if next_doubao:
-            start_research_task(next_doubao)
+        if active_doubao == "0":
+            next_doubao = run_mysql(
+                "SELECT `id` FROM `investigation_tasks` "
+                "WHERE `status` IN ('doubao_queued','tungee_done','research_failed') "
+                "ORDER BY `priority`,`id` LIMIT 1",
+                config,
+            ).strip()
+            if next_doubao:
+                start_research_task(next_doubao)
 
-    while True:
-        try:
-            assign_next_investigation_task()
-        except Exception:
-            return
+        while True:
+            try:
+                assign_next_investigation_task()
+            except Exception:
+                return
+    finally:
+        AUTO_DISPATCH_LOCK.release()
 
 
 def start_auto_dispatch() -> None:
     threading.Thread(target=auto_dispatch_available_tasks, daemon=True).start()
+
+
+def automatic_dispatch_loop() -> None:
+    """Keep existing waiting tasks moving even when an event-driven wake-up is missed."""
+    while True:
+        try:
+            auto_dispatch_available_tasks()
+        except Exception:
+            # A transient browser or database error must not permanently stop dispatch.
+            pass
+        time.sleep(AUTO_DISPATCH_INTERVAL_SECONDS)
 
 
 def auto_collect_previous_day() -> dict:
@@ -3278,7 +3296,7 @@ def main() -> None:
     archive_resolved_historical_failures()
     backfill_shared_company_data()
     threading.Thread(target=automatic_pipeline_loop, daemon=True).start()
-    start_auto_dispatch()
+    threading.Thread(target=automatic_dispatch_loop, daemon=True).start()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"鑫众ERP系统 running at http://{host}:{port}")
     server.serve_forever()

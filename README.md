@@ -160,6 +160,7 @@ powershell -ExecutionPolicy Bypass -File .\start_erp.ps1
 - 历史日期可用 `scripts/repair_workbook_section_dates.py` 和 `scripts/repair_legacy_sqlite_dates.py` 做唯一匹配回填，两者默认 dry-run，使用 `--apply` 才写库
 - 项目接口会过滤历史误导入的 `Excel日期分组` 行，页面统计和 Excel 导出使用同一口径
 - 服务重启后会继续处理 `doubao_queued`、`tungee_done` 和 `research_failed`，豆包浏览器始终保持单任务串行
+- 调度守护每 15 秒检查一次已存在的待处理任务；即使某次事件唤醒丢失或遇到临时异常，队列也会自动恢复，不依赖再次新增任务
 - 2026-07-16 验证：未标日期由 241 条降至 43 条，51 项自动化测试通过
 - 招标网/采招网历史匹配必须同时验证项目名、项目单位和备案号月份；网页发布时间与备案号月份冲突时拒绝写入
 - 公开网页匹配证据保存在 `lead_date_match_audit`；本轮再确认 2 条，未标日期降至 41 条

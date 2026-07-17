@@ -717,6 +717,24 @@ class WorkflowTests(unittest.TestCase):
 
         start_research.assert_called_once_with("17")
 
+    def test_dispatch_watchdog_retries_after_transient_failure(self):
+        calls = []
+
+        def fake_dispatch():
+            calls.append("dispatch")
+            if len(calls) == 1:
+                raise server.ApiError("temporary database failure")
+            raise KeyboardInterrupt()
+
+        with (
+            patch.object(server, "auto_dispatch_available_tasks", side_effect=fake_dispatch),
+            patch.object(server.time, "sleep", return_value=None),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            server.automatic_dispatch_loop()
+
+        self.assertEqual(calls, ["dispatch", "dispatch"])
+
     def test_research_worker_dispatches_next_task_after_browser_closes(self):
         events = []
 
