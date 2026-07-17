@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_CODE_DIR = BASE_DIR.parent
+MODULE_CODE_DIR = BASE_DIR if (BASE_DIR / "enrich_tungee.py").exists() else PROJECT_CODE_DIR
 CONFIG_PATH = BASE_DIR / "config.local.json"
 FILING_SOURCE_NAME = "深圳投资项目公示"
 FILING_SOURCE_URL = "https://wsbs.sz.gov.cn/investment/pubInformation/index"
@@ -213,9 +214,60 @@ def normalize_search_text(value: object) -> str:
 
 
 def filing_search_text(row: dict) -> str:
-    return normalize_search_text(
-        " ".join(str(row.get(key, "")) for key in ("projectName", "projectUnit", "projectType"))
-    )
+    # Business relevance is determined by the project itself. A company whose
+    # name contains "新能源" may also file unrelated construction projects.
+    return normalize_search_text(row.get("projectName", ""))
+
+
+def is_relevant_filing_project(project: dict, keywords: list[str] | None = None) -> bool:
+    project_name = project.get("projectName") or project.get("company_name") or ""
+    normalized_name = normalize_search_text(project_name)
+    active_keywords = keywords or split_keywords(AUTO_FILING_KEYWORDS)
+    return bool(normalized_name) and any(keyword in normalized_name for keyword in active_keywords)
+
+
+def phone_field_quality(value: object) -> dict:
+    text = str(value or "").strip()
+    candidates = list(dict.fromkeys(re.findall(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)))
+    if not text:
+        return {"status": "missing", "label": "缺失", "phones": []}
+    if len(candidates) > 1:
+        return {"status": "multiple", "label": "多个号码，需确认联系人", "phones": candidates}
+    if len(candidates) == 1 and re.fullmatch(r"1[3-9]\d{9}", text):
+        return {"status": "formatted", "label": "单号码格式有效，仍需通话核验", "phones": candidates}
+    if len(candidates) == 1:
+        return {"status": "noted", "label": "号码夹带备注，需人工整理", "phones": candidates}
+    return {"status": "invalid", "label": "未识别到有效手机号", "phones": []}
+
+
+def assess_project_accuracy(project: dict) -> dict:
+    issues = []
+    project_phone = phone_field_quality(project.get("projectPhone"))
+    main_phone = phone_field_quality(project.get("mainPhone"))
+    for label, quality in (("项目公司手机号", project_phone), ("主体公司手机号", main_phone)):
+        if quality["status"] != "formatted":
+            issues.append(f"{label}：{quality['label']}")
+
+    main_company = str(project.get("mainCompany") or "").strip()
+    project_company = str(project.get("projectCompany") or "").strip()
+    relation_graph = str(project.get("relationGraph") or "").strip()
+    combined_evidence = f"{relation_graph} {project.get('remark') or ''}"
+    if not main_company:
+        issues.append("主体公司尚未确认")
+    elif enterprise_name_key(main_company) == enterprise_name_key(project_company):
+        issues.append("主体公司与备案公司相同，需确认是否为企业自投")
+    if not relation_graph:
+        issues.append("缺少股权穿透依据")
+    elif any(marker in combined_evidence for marker in ("备案公司作为探迹股权穿透起点", "模糊命中", "不是已确认的最终主体")):
+        issues.append("主体公司使用兜底或模糊匹配，必须人工复核")
+    if not str(project.get("projectLocation") or "").strip():
+        issues.append("项目所在地缺失")
+    return {
+        "status": "需人工核验" if issues else "资料格式完整",
+        "issues": issues,
+        "projectPhone": project_phone,
+        "mainPhone": main_phone,
+    }
 
 
 def record_to_filing_row(record: dict) -> dict:
@@ -238,8 +290,8 @@ def crawl_filings_live(date_text: str, keywords: list[str]) -> tuple[list[dict],
         raise ApiError("已有备案采集任务正在运行，请稍后再查。")
 
     try:
-        if str(PROJECT_CODE_DIR) not in sys.path:
-            sys.path.insert(0, str(PROJECT_CODE_DIR))
+        if str(MODULE_CODE_DIR) not in sys.path:
+            sys.path.insert(0, str(MODULE_CODE_DIR))
         from main import SZInvestCrawler
 
         class ServerFilingCrawler(SZInvestCrawler):
@@ -847,7 +899,15 @@ def submit_intake_projects(projects: list[dict]) -> dict:
     queued = 0
     duplicates = 0
     saved = []
+    skipped = []
     for project in projects:
+        if str(project.get("source") or "").strip() == FILING_SOURCE_NAME and not is_relevant_filing_project(project):
+            skipped.append({
+                "sourceId": project.get("sourceId") or project.get("recordCode") or "",
+                "projectName": project.get("projectName") or "",
+                "reason": "项目名称未命中新能源业务关键词",
+            })
+            continue
         row = project_to_lead_row(project)
         source_id = row["sourceId"]
         existing = json_rows(
@@ -899,7 +959,16 @@ def submit_intake_projects(projects: list[dict]) -> dict:
         saved.append({"intakeId": intake_id, "taskId": task_id, "sourceId": source_id, "duplicate": False})
         queued += 1
     start_auto_dispatch()
-    return {"ok": True, "count": len(projects), "queued": queued, "duplicates": duplicates, "saved": saved}
+    return {
+        "ok": True,
+        "count": len(projects),
+        "accepted": len(projects) - len(skipped),
+        "queued": queued,
+        "duplicates": duplicates,
+        "skipped": len(skipped),
+        "skippedProjects": skipped,
+        "saved": saved,
+    }
 
 
 def update_lead(project: dict) -> dict:
@@ -1366,8 +1435,8 @@ def open_tungee_seat_login(body: dict) -> dict:
     )
     if not rows:
         raise ApiError("席位不存在。")
-    if str(PROJECT_CODE_DIR) not in sys.path:
-        sys.path.insert(0, str(PROJECT_CODE_DIR))
+    if str(MODULE_CODE_DIR) not in sys.path:
+        sys.path.insert(0, str(MODULE_CODE_DIR))
     from enrich_tungee import (
         TUNGEE_SEARCH,
         TUNGEE_SIGN_IN,
@@ -1659,8 +1728,8 @@ def run_tungee_task(task_id: str, seat_id: str) -> None:
             raise ApiError(
                 f"探迹查询目标不是有效企业全称，已停止执行。项目名称“{task.get('projectName') or ''}”仅供豆包调查。"
             )
-        if str(PROJECT_CODE_DIR) not in sys.path:
-            sys.path.insert(0, str(PROJECT_CODE_DIR))
+        if str(MODULE_CODE_DIR) not in sys.path:
+            sys.path.insert(0, str(MODULE_CODE_DIR))
         from enrich_tungee import (
             TUNGEE_SEARCH,
             attach_driver,
@@ -1730,8 +1799,8 @@ def doubao_profile_dir() -> Path:
 
 
 def open_doubao_login() -> dict:
-    if str(PROJECT_CODE_DIR) not in sys.path:
-        sys.path.insert(0, str(PROJECT_CODE_DIR))
+    if str(MODULE_CODE_DIR) not in sys.path:
+        sys.path.insert(0, str(MODULE_CODE_DIR))
     from llm_doubao_web import DOUBAO_DEBUG_PORT, DOUBAO_URL, chrome_running, launch_chrome
 
     profile_dir = doubao_profile_dir()
@@ -2258,8 +2327,8 @@ def run_doubao_research_task(task_id: str) -> None:
         try:
             config = load_config()
             lead_id, project = fetch_task_project(task_id, config)
-            if str(PROJECT_CODE_DIR) not in sys.path:
-                sys.path.insert(0, str(PROJECT_CODE_DIR))
+            if str(MODULE_CODE_DIR) not in sys.path:
+                sys.path.insert(0, str(MODULE_CODE_DIR))
             from llm_doubao_web import DOUBAO_DEBUG_PORT, DOUBAO_URL, attach_driver, call_doubao
             from llm_summary import SYSTEM_PROMPT, build_user_prompt
 
@@ -2510,6 +2579,7 @@ def fetch_projects() -> dict:
         item["tungeeStatus"] = item.get("tungeeStatus") or inferred_tungee
         item["reviewStatus"] = item.get("reviewStatus") or ("待人工审核" if item["tungeeStatus"] == "已取信息" else "待查探迹")
         item["queued"] = bool(item.get("queued"))
+        item["accuracy"] = assess_project_accuracy(item)
         projects.append(item)
 
     # Show raw filing leads while enrichment is still running. This keeps the
@@ -2519,7 +2589,7 @@ def fetch_projects() -> dict:
         "'$.reviewStatus', CASE WHEN `status`='completed' THEN '待修复入库' "
         "WHEN `status`='research_failed' THEN '待人工确认' ELSE '待补全' END, "
         "'$.tungeeStatus', IF(`status`='completed','已取信息',`status`), '$.queued', TRUE, '$.intakeStatus', `status`) "
-        "FROM `investigation_intake` ORDER BY `id` DESC LIMIT 5000",
+        "FROM `investigation_intake` WHERE `status` <> 'cancelled' ORDER BY `id` DESC LIMIT 5000",
         config,
     )
     existing_source_ids = {str(item.get("sourceId") or "") for item in projects if item.get("sourceId")}
@@ -2545,6 +2615,7 @@ def fetch_projects() -> dict:
         item["category"] = item.get("category") or infer_project_category(item)
         item["queued"] = True
         item["source"] = item.get("source") or FILING_SOURCE_NAME
+        item["accuracy"] = assess_project_accuracy(item)
         projects.append(item)
 
     mysql = config.get("mysql", {})

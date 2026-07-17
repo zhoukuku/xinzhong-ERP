@@ -398,6 +398,21 @@ function normalizeDbProject(row) {
   return item;
 }
 
+function renderAccuracyReview(project) {
+  const accuracy = project.accuracy || {};
+  const issues = Array.isArray(accuracy.issues) ? accuracy.issues : [];
+  const status = accuracy.status || "等待服务器核验";
+  return `
+    <div class="accuracy-review-head">
+      <strong>数据核验</strong>
+      <span class="accuracy-status ${issues.length ? "needs-review" : "complete"}">${escapeHtml(status)}</span>
+    </div>
+    ${issues.length
+      ? `<ul>${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>`
+      : '<p>未发现明显的格式或来源缺口；工商关系和手机号仍应以实际通话及原平台为准。</p>'}
+  `;
+}
+
 function appendProjects(projects) {
   const existingKeys = new Set(state.projects.flatMap(projectIdentityKeys));
   const fresh = projects.filter((project) => {
@@ -826,6 +841,9 @@ function renderDetail() {
       queueProjectSave(project);
     });
   });
+
+  const accuracyReview = node.querySelector("[data-accuracy-review]");
+  if (accuracyReview) accuracyReview.innerHTML = renderAccuracyReview(project);
 
   els.detailPanel.innerHTML = "";
   els.detailPanel.appendChild(node);
@@ -1489,9 +1507,12 @@ async function addSelectedFilingsToLeads() {
     render();
     const queued = payload.queued || 0;
     const duplicates = payload.duplicates || 0;
+    const skipped = payload.skipped || 0;
     els.dbStatus.textContent = queued
-      ? `已加入项目线索：新增 ${queued} 条，重复 ${duplicates} 条；新增项目已进入后台调查`
-      : `${duplicates} 条均已存在，未重复创建；已打开 ${submittedDate || "对应日期"} 的项目线索`;
+      ? `已加入项目线索：新增 ${queued} 条，重复 ${duplicates} 条${skipped ? `，拦截无关项目 ${skipped} 条` : ""}；新增项目已进入后台调查`
+      : skipped
+        ? `未加入调查：已拦截 ${skipped} 条项目名称不相关的数据`
+        : `${duplicates} 条均已存在，未重复创建；已打开 ${submittedDate || "对应日期"} 的项目线索`;
     selectedFilingKeys.clear();
     updateFilingSelectionUi();
     showView("workspace");

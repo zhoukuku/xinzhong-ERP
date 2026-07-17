@@ -12,10 +12,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import server
-
-PROJECT_CODE = ROOT.parent
-if str(PROJECT_CODE) not in sys.path:
-    sys.path.insert(0, str(PROJECT_CODE))
 import enrich_tungee
 
 
@@ -368,6 +364,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("一级股东：东莞市控股公司有限公司（持股 100%）", result["relation_graph"])
         self.assertIn("实际控制关系需人工复核", result["relation_graph"])
 
+    def test_tungee_twenty_percent_shareholder_is_not_promoted_to_controlling_company(self):
+        class Driver:
+            current_url = ""
+
+            def get(self, url):
+                self.current_url = url
+
+        filing = {
+            "company_name": "深圳市项目公司有限公司",
+            "legal_representative": "项目公司法人",
+            "contact_person": "项目联系人",
+            "shareholders": [{
+                "name": "深圳市少数股东有限公司",
+                "ratio": 20.0,
+                "type": "company",
+                "controlling": False,
+            }],
+        }
+        with (
+            patch.object(enrich_tungee, "search_company", return_value="https://example.test/filing"),
+            patch.object(enrich_tungee, "extract_detail", return_value=filing),
+        ):
+            result = enrich_tungee.investigate_company_chain(Driver(), "深圳市项目公司有限公司")
+
+        self.assertEqual(result["main_company"], "深圳市项目公司有限公司")
+        self.assertNotIn("背后控股公司：深圳市少数股东有限公司", result["relation_graph"])
+        self.assertIn("未达到控股认定条件", result["relation_graph"])
+
     def test_strong_category_rules(self):
         self.assertEqual(server.infer_project_category({"projectName": "园区光储充一体化项目"}), "storage_charge")
         self.assertEqual(server.infer_project_category({"projectName": "停车场超充站"}), "carport")
@@ -380,6 +404,50 @@ class WorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(len(server.filter_filing_rows(rows, ["kwp"])), 1)
         self.assertEqual(len(server.filter_filing_rows(rows, ["kwh"])), 1)
+
+    def test_filing_filter_does_not_match_unrelated_project_by_company_name(self):
+        rows = [{
+            "projectName": "精密紧固件生产线自动化技术改造",
+            "projectUnit": "测试新能源有限公司",
+            "projectType": "备案",
+        }]
+        self.assertEqual(server.filter_filing_rows(rows, ["新能源"]), [])
+
+    def test_official_filing_intake_skips_unrelated_project_before_database_write(self):
+        project = {
+            "source": server.FILING_SOURCE_NAME,
+            "sourceId": "2607-unrelated",
+            "recordCode": "2607-unrelated",
+            "projectName": "职工食堂改造工程",
+            "projectCompany": "测试新能源有限公司",
+        }
+        with (
+            patch.object(server, "load_config", return_value={}),
+            patch.object(server, "ensure_investigation_tables"),
+            patch.object(server, "run_mysql") as run_mysql,
+            patch.object(server, "start_auto_dispatch") as dispatch,
+        ):
+            result = server.submit_intake_projects([project])
+
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["queued"], 0)
+        run_mysql.assert_not_called()
+        dispatch.assert_called_once()
+
+    def test_accuracy_flags_multiple_phone_numbers_and_filing_company_fallback(self):
+        accuracy = server.assess_project_accuracy({
+            "projectCompany": "备案公司有限公司",
+            "mainCompany": "备案公司有限公司",
+            "projectPhone": "张三13800138000/李四13900139000",
+            "mainPhone": "13800138000",
+            "relationGraph": "备案公司作为探迹股权穿透起点",
+            "remark": "不是已确认的最终主体",
+            "projectLocation": "",
+        })
+
+        self.assertEqual(accuracy["status"], "需人工核验")
+        self.assertEqual(accuracy["projectPhone"]["status"], "multiple")
+        self.assertTrue(any("兜底或模糊匹配" in issue for issue in accuracy["issues"]))
 
     def test_filing_legacy_cache_fallback_initializes_all_rows(self):
         config = {
