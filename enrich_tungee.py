@@ -523,7 +523,7 @@ def parse_shareholders(text: str) -> list[dict]:
 def contact_candidate_score(candidate: dict, preferred_names: list[str]) -> tuple[int, int]:
     """Rank direct company contacts without claiming an unverified phone-owner match."""
     tags = str(candidate.get("tags") or "")
-    if "疑似空号" in tags or "疑似代理记账" in tags:
+    if "疑似空号" in tags:
         return (-1000, 0)
     display_name = re.sub(r"\s+", "", str(candidate.get("name") or "").split("·", 1)[0])
     compact_display = display_name.replace("*", "")
@@ -549,10 +549,22 @@ def contact_candidate_score(candidate: dict, preferred_names: list[str]) -> tupl
 
 
 def choose_contact_candidate(candidates: list[dict], preferred_names: list[str]) -> dict:
-    valid = [candidate for candidate in candidates if contact_candidate_score(candidate, preferred_names)[0] >= 0]
-    if not valid:
+    usable = [candidate for candidate in candidates if contact_candidate_score(candidate, preferred_names)[0] >= 0]
+    if not usable:
         return {}
-    return max(valid, key=lambda candidate: contact_candidate_score(candidate, preferred_names))
+    direct = [candidate for candidate in usable if "疑似代理记账" not in str(candidate.get("tags") or "")]
+    # A bookkeeping contact is still a possible route to the company, but it
+    # must never outrank a direct contact and must be visibly marked downstream.
+    return max(direct or usable, key=lambda candidate: contact_candidate_score(candidate, preferred_names))
+
+
+def contact_phone_value(candidate: dict) -> str:
+    phone = str(candidate.get("phone") or "").strip()
+    if not phone:
+        return ""
+    if "疑似代理记账" in str(candidate.get("tags") or ""):
+        return f"{phone}（探迹标记疑似代理记账，待核验）"
+    return phone
 
 
 def extract_contact_candidates(driver, page_text: str, preferred_names: list[str]) -> tuple[list[dict], int]:
@@ -674,6 +686,14 @@ def extract_detail(driver) -> dict:
     except Exception:
         pass
 
+    # Some detail pages expose the mobile count before the contact cards are
+    # unlocked. Unlock once more inside the contact tab and refresh its DOM.
+    unlock_company(driver)
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    time.sleep(0.8)
+    driver.execute_script("window.scrollTo(0, 0);")
+    time.sleep(0.5)
+
     if "/enterprise-details/" not in driver.current_url and "/enterprise-details/" in detail_url:
         driver.get(detail_url)
         time.sleep(2)
@@ -689,7 +709,7 @@ def extract_detail(driver) -> dict:
     preferred_names.append(legal_name)
     contacts, mobile_count = extract_contact_candidates(driver, text, preferred_names)
     selected_contact = choose_contact_candidate(contacts, preferred_names)
-    profile["phone"] = selected_contact.get("phone", "")
+    profile["phone"] = contact_phone_value(selected_contact)
     profile["contact_name"] = selected_contact.get("name", "")
     profile["contact_match"] = selected_contact.get("match_type", "")
     profile["contacts"] = contacts
@@ -791,7 +811,8 @@ def investigate_company_chain(driver, filing_company: str, timeout: int = 30) ->
     if controlling.get("mobile_count", 0) <= 0:
         contact_note = "探迹该企业手机联系人为0；关联公司推荐号码未写入"
     elif controlling.get("phone"):
-        contact_note = f"已选联系人：{selected_contact or '未显示姓名'}，排序依据：{contact_match or 'HOT等级及联系人质量'}"
+        warning = "；该号码被探迹标记为疑似代理记账，仅作为候选联系路径" if "疑似代理记账" in controlling.get("phone", "") else ""
+        contact_note = f"已选联系人：{selected_contact or '未显示姓名'}，排序依据：{contact_match or 'HOT等级及联系人质量'}{warning}"
     if contact_note:
         equity_lines.append(f"联系方式：{contact_note}")
     return {
@@ -813,7 +834,7 @@ def investigate_company_chain(driver, filing_company: str, timeout: int = 30) ->
         "relation_graph": "\n".join(equity_lines),
         "relation_graph_raw": chain,
         "remark": "；".join(item for item in [
-            "探迹股权链：项目单位 → 控股法人股东 → 控股公司负责人" if owner else "探迹未确认控股法人股东，低持股比例股东未升级为主体公司",
+            "探迹股权链：项目单位 → 控股法人股东 → 控股公司负责人" if owner else "探迹未确认控股法人股东，低持股比例股东未升级为控股公司",
             contact_note,
             "手机号与股东身份需员工电话核验",
         ] if item),

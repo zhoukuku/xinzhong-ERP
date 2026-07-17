@@ -17,10 +17,10 @@ const fieldDefs = [
   ["projectCompany", "项目单位"],
   ["projectContact", "项目公司联系人"],
   ["projectPhone", "项目公司手机号"],
-  ["mainCompany", "主体公司"],
-  ["mainContact", "主体公司联系人"],
-  ["mainPhone", "主体公司手机号"],
-  ["mainAddress", "主体公司地址", "wide"],
+  ["mainCompany", "控股公司"],
+  ["mainContact", "控股公司联系人"],
+  ["mainPhone", "控股公司手机号"],
+  ["mainAddress", "控股公司地址", "wide"],
   ["relationGraph", "关系图谱", "wide"],
   ["investor", "投资人"],
   ["projectSituation", "项目情况", "wide"],
@@ -42,10 +42,10 @@ const exportColumns = [
   ["category", "项目性质"],
   ["projectContact", "项目公司联系人"],
   ["projectPhone", "手机号"],
-  ["mainCompany", "主体公司"],
-  ["mainContact", "主体公司联系人"],
+  ["mainCompany", "控股公司"],
+  ["mainContact", "控股公司联系人"],
   ["mainPhone", "手机号"],
-  ["mainAddress", "主体公司地址"],
+  ["mainAddress", "控股公司地址"],
   ["relationGraph", "关系图谱"],
   ["investor", "投资人"],
   ["projectSituation", "项目情况"],
@@ -296,10 +296,10 @@ function normalizeProject(row) {
     projectContact: get("项目公司联系人", "联系人"),
     projectPhone: get("手机号", "项目公司手机号", "电话"),
     projectAddress: get("地址", "项目公司地址"),
-    mainCompany: get("主体公司"),
-    mainContact: get("主体公司联系人"),
-    mainPhone: get("主体公司手机号", "主体手机号", "主体公司手机", "主手机号"),
-    mainAddress: get("主体公司地址"),
+    mainCompany: get("控股公司", "主体公司"),
+    mainContact: get("控股公司联系人", "主体公司联系人"),
+    mainPhone: get("控股公司手机号", "主体公司手机号", "主体手机号", "主体公司手机", "主手机号"),
+    mainAddress: get("控股公司地址", "主体公司地址"),
     relationGraph: get("关系图谱"),
     investor: get("投资人"),
     projectSituation: get("项目情况"),
@@ -1610,7 +1610,7 @@ els.doubaoLoginBtn.addEventListener("click", async () => {
 
 els.startInvestigationBtn.addEventListener("click", async () => {
   els.startInvestigationBtn.disabled = true;
-  els.centerStatus.textContent = "正在启动：豆包识别主体公司，完成后自动交给探迹...";
+  els.centerStatus.textContent = "正在启动：豆包识别控股公司，完成后自动交给探迹...";
   try {
     const response = await fetch("/api/investigation-tasks/run-research-next", { method: "POST" });
     const payload = await response.json();

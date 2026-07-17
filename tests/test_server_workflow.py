@@ -131,7 +131,7 @@ class WorkflowTests(unittest.TestCase):
     def test_doubao_mapping_never_writes_manual_fields(self):
         result = {
             "公司性质": "民企",
-            "最终主体公司": "深圳恒盛能源有限公司",
+            "最终控股公司": "深圳恒盛能源有限公司",
             "股权穿透": {"最终控股方": "恒盛投资集团", "实际控制人": "张三"},
             "关键对接人": [{"姓名": "李四", "职务": "法人", "电话": "13800138000"}],
             "项目情况": "100kW 屋顶光伏",
@@ -148,6 +148,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("projectPhone", update)
         self.assertEqual(update["projectLocation"], "深圳市宝安区")
         self.assertNotIn("projectAddress", update)
+
+    def test_doubao_mapping_keeps_legacy_subject_company_compatible(self):
+        update = server.doubao_result_to_project(
+            {"最终主体公司": "深圳历史能源有限公司"}, "1", [],
+        )
+        self.assertEqual(update["mainCompany"], "深圳历史能源有限公司")
 
     def test_project_location_is_inferred_from_filing_title(self):
         title = "深圳市宝安区沙井街道金沙一路金沙工业园40kWp光伏发电项目"
@@ -299,6 +305,23 @@ class WorkflowTests(unittest.TestCase):
             {"phone": "13900139000", "name": "王**", "tags": "近期收录", "hot_level": 1, "index": 1},
         ]
         self.assertEqual(enrich_tungee.choose_contact_candidate(candidates, ["李岩"])["phone"], "13900139000")
+
+    def test_tungee_contact_ranking_keeps_bookkeeping_phone_as_warned_fallback(self):
+        candidates = [
+            {"phone": "13023008792", "name": "", "tags": "疑似代理记账 来自年报", "hot_level": 0, "index": 0},
+        ]
+        selected = enrich_tungee.choose_contact_candidate(candidates, ["汪伟"])
+        self.assertEqual(selected["phone"], "13023008792")
+        self.assertEqual(
+            enrich_tungee.contact_phone_value(selected),
+            "13023008792（探迹标记疑似代理记账，待核验）",
+        )
+
+    def test_tungee_contact_ranking_still_rejects_suspected_empty_phone(self):
+        candidates = [
+            {"phone": "13800138000", "name": "", "tags": "疑似空号", "hot_level": 3, "index": 0},
+        ]
+        self.assertEqual(enrich_tungee.choose_contact_candidate(candidates, []), {})
 
     def test_tungee_shareholder_parser_does_not_treat_equity_pledge_as_person(self):
         text = (
@@ -842,6 +865,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual([cell.value for cell in workbook["原始客户"][1]], ["项目信息", "备案公司", "项目备案编号"])
         sheet = workbook["目标客户"]
         self.assertEqual([cell.value for cell in sheet[1]], server.SALES_RESULT_LABELS)
+        self.assertEqual(sheet["F1"].value, "控股公司")
+        self.assertEqual(sheet["G1"].value, "控股公司联系人")
+        self.assertEqual(sheet["I1"].value, "控股公司地址")
+        self.assertNotIn("主体公司", [cell.value for cell in sheet[1]])
         self.assertEqual(sheet.freeze_panes, "A2")
         self.assertEqual([cell.value for cell in sheet[2]], [
             "测试光伏项目", "测试项目单位", "光伏车棚", None, None, "测试主体公司",

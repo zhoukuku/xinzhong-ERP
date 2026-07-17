@@ -55,7 +55,7 @@ SZ_BASE_URL = "https://wsbs.sz.gov.cn"
 
 EXCEL_HEADERS = [
     "项目信息", "项目单位", "项目公司联系人", "手机号", "地址",
-    "主体公司", "主体公司联系人", "手机号", "主体公司地址",
+    "控股公司", "控股公司联系人", "手机号", "控股公司地址",
     "关系图谱", "投资人", "项目情况", "项目进展", "项目所在地",
     "项目备案编号", "备注", "项目总结"
 ]
@@ -846,7 +846,7 @@ class TianyanchaEnricher:
             'contact_person': '',   # 法定代表人/联系人
             'phone': '',             # 手机号（天眼查公开页通常看不到）
             'address': '',          # 企业地址
-            'main_company': '',      # 主体公司（如有）
+            'main_company': '',      # 控股公司（如有）
             'investor': '',         # 投资人/股东
             'remark': '',
         }
@@ -2252,7 +2252,7 @@ class TungeeCrawler:
             return False
 
     def _parse_detail_page(self, driver: webdriver.Chrome, company_name: str) -> Optional[dict]:
-        """解析探迹企业详情页，提取联系人和主体公司等信息
+        """解析探迹企业详情页，提取联系人和控股公司等信息
 
         基于实际探索发现的稳定选择器：
         - 联系方式Tab: //*[contains(text(),'公司联系方式')]
@@ -2403,8 +2403,8 @@ class TungeeCrawler:
             except Exception as e:
                 self.log(f"    关系图谱提取异常: {e}")
 
-            # ========== 5. 主体公司 ==========
-            for pat in [r'主体公司[：:]\s*([^\s\n]{4,30})', r'所属企业[：:]\s*([^\s\n]{4,30})']:
+            # ========== 5. 控股公司（兼容历史“主体公司”文本） ==========
+            for pat in [r'控股公司[：:]\s*([^\s\n]{4,30})', r'主体公司[：:]\s*([^\s\n]{4,30})', r'所属企业[：:]\s*([^\s\n]{4,30})']:
                 m = re.search(pat, body_text)
                 if m:
                     rec['main_company'] = clean_text(m.group(1))
@@ -2644,10 +2644,10 @@ def export_to_excel(records: list, filepath: str):
         'contact_person', # 3. 项目公司联系人
         'phone',          # 4. 手机号
         'address',        # 5. 地址
-        'main_company',   # 6. 主体公司
-        'main_contact',  # 7. 主体公司联系人
+        'main_company',   # 6. 控股公司
+        'main_contact',  # 7. 控股公司联系人
         'main_phone',    # 8. 手机号            ← 修正：之前漏了 main_phone
-        'main_address',   # 9. 主体公司地址
+        'main_address',   # 9. 控股公司地址
         'relation_graph', # 10. 关系图谱         ← 修正：之前为空
         'investor',      # 11. 投资人
         'project_desc',   # 12. 项目情况

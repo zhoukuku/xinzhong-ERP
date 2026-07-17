@@ -63,7 +63,7 @@ EXPORT_FIELDS = [
 META_FIELDS = ["source", "sourceId", "recordDate"]
 EXPORT_LABELS = [
     "项目信息", "项目单位", "项目公司联系人", "手机号", "地址",
-    "主体公司", "主体公司联系人", "手机号", "主体公司地址", "关系图谱",
+    "控股公司", "控股公司联系人", "手机号", "控股公司地址", "关系图谱",
     "投资人", "项目情况", "项目进展", "项目所在地", "项目备案编号",
     "备注", "项目总结", "电话反馈",
 ]
@@ -73,8 +73,8 @@ SALES_RESULT_FIELDS = [
     "projectSituation", "projectProgress", "projectLocation", "recordCode", "remark", "projectSummary", "phoneFeedback",
 ]
 SALES_RESULT_LABELS = [
-    "项目信息", "项目单位", "项目性质", "项目公司联系人", "手机号", "主体公司",
-    "主体公司联系人", "手机号", "主体公司地址", "关系图谱", "投资人", "项目情况",
+    "项目信息", "项目单位", "项目性质", "项目公司联系人", "手机号", "控股公司",
+    "控股公司联系人", "手机号", "控股公司地址", "关系图谱", "投资人", "项目情况",
     "项目进展", "项目所在地", "项目备案编号", "备注", "项目总结", "电话反馈",
 ]
 EXPORT_SHEETS = {
@@ -244,7 +244,7 @@ def assess_project_accuracy(project: dict) -> dict:
     issues = []
     project_phone = phone_field_quality(project.get("projectPhone"))
     main_phone = phone_field_quality(project.get("mainPhone"))
-    for label, quality in (("项目公司手机号", project_phone), ("主体公司手机号", main_phone)):
+    for label, quality in (("项目公司手机号", project_phone), ("控股公司手机号", main_phone)):
         if quality["status"] != "formatted":
             issues.append(f"{label}：{quality['label']}")
 
@@ -253,13 +253,13 @@ def assess_project_accuracy(project: dict) -> dict:
     relation_graph = str(project.get("relationGraph") or "").strip()
     combined_evidence = f"{relation_graph} {project.get('remark') or ''}"
     if not main_company:
-        issues.append("主体公司尚未确认")
+        issues.append("控股公司尚未确认")
     elif enterprise_name_key(main_company) == enterprise_name_key(project_company):
-        issues.append("主体公司与备案公司相同，需确认是否为企业自投")
+        issues.append("控股公司与备案公司相同，需确认是否为企业自投或无上级控股企业")
     if not relation_graph:
         issues.append("缺少股权穿透依据")
     elif any(marker in combined_evidence for marker in ("备案公司作为探迹股权穿透起点", "模糊命中", "不是已确认的最终主体")):
-        issues.append("主体公司使用兜底或模糊匹配，必须人工复核")
+        issues.append("控股公司使用兜底或模糊匹配，必须人工复核")
     if not str(project.get("projectLocation") or "").strip():
         issues.append("项目所在地缺失")
     return {
@@ -1347,7 +1347,7 @@ def normalize_queued_investigation_targets() -> dict:
         if cleaned_key in seen:
             run_mysql(
                 "UPDATE `investigation_tasks` SET `status`='cancelled',"
-                f"`error_text`={sql_literal('同一主体公司重复补全，已自动合并')},`finished_at`=NOW() "
+                f"`error_text`={sql_literal('同一控股公司重复补全，已自动合并')},`finished_at`=NOW() "
                 f"WHERE `id`={int(row['id'])} LIMIT 1",
                 config,
             )
@@ -1518,6 +1518,8 @@ def suggested_tungee_company(result: dict, fallback: str = "") -> str:
     normalized = {str(key).strip(): value for key, value in result.items()}
     equity = normalized.get("股权穿透") if isinstance(normalized.get("股权穿透"), dict) else {}
     candidates = [
+        normalized.get("最终控股公司"),
+        normalized.get("建议探迹查询控股公司"),
         normalized.get("最终主体公司"),
         normalized.get("建议探迹查询主体公司"),
         normalized.get("主体公司"),
@@ -1949,8 +1951,8 @@ def friendly_tungee_error(error: str) -> str:
     lower = raw.lower()
     if not raw:
         return ""
-    if "同一主体公司重复补全" in raw:
-        return "同一主体公司重复补全，已自动合并"
+    if "同一主体公司重复补全" in raw or "同一控股公司重复补全" in raw:
+        return "同一控股公司重复补全，已自动合并"
     if "stale element" in lower or "target frame detached" in lower:
         return "探迹页面刷新导致元素失效（技术异常，可重试）"
     if any(marker in lower for marker in ("httpconnectionpool", "read timed out", "connectionreseterror", "connection aborted")):
@@ -2231,7 +2233,7 @@ def submit_manual_doubao_result(body: dict) -> dict:
                 raise ApiError("豆包结果不是可解析的 JSON，请保留完整大括号内容后重试。") from exc
     target = suggested_tungee_company(result, str(body.get("tungeeTarget") or "").strip())
     if not target:
-        raise ApiError("结果中没有识别到主体公司，请补充“建议探迹查询主体公司”或“实际投资方”。")
+        raise ApiError("结果中没有识别到控股公司，请补充“建议探迹查询控股公司”或“实际投资方”。")
     finish_doubao_stage(task_id, result, [], target)
     start_auto_dispatch()
     return {"ok": True, "taskId": task_id, "tungeeTarget": target, **fetch_investigation_center()}
@@ -2261,8 +2263,8 @@ def fallback_subject_result(project: dict) -> dict:
     if not situation and project_name:
         situation = f"项目已完成备案，建设内容以“{project_name}”备案信息为准，当前施工进度待电话核实。"
     return {
-        "最终主体公司": "[未确认]",
-        "建议探迹查询主体公司": "[未确认]",
+        "最终控股公司": "[未确认]",
+        "建议探迹查询控股公司": "[未确认]",
         "控股人姓名": "[未确认]",
         "控股人手机号": "[未公开]",
         "项目建设地点": location or "[未确认]",
@@ -3065,7 +3067,7 @@ def build_export_workbook(date_filter: str = "") -> bytes:
         "projectName", "projectCompany", "projectContact", "projectPhone", "mainCompany",
         "projectSituation", "projectProgress", "projectLocation", "projectSummary", "phoneFeedback",
     ]
-    met_sheet.append(["项目信息", "项目单位", "项目公司联系人", "手机号", "主体公司", "项目情况", "项目进展", "项目所在地", "项目总结", "拜访反馈"])
+    met_sheet.append(["项目信息", "项目单位", "项目公司联系人", "手机号", "控股公司", "项目情况", "项目进展", "项目所在地", "项目总结", "拜访反馈"])
     for project in met_projects:
         met_sheet.append([project.get(key, "") for key in met_fields])
     style_sheet(met_sheet, [48, 32, 18, 22, 32, 48, 48, 28, 40, 48])
